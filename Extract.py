@@ -1,54 +1,43 @@
 import os
 import requests
-from retry import retry
-from requests.exceptions import RequestException
+from retrying import retry
+import pandas as pd
 
-# Function to download CSV file from URL with retries for network errors
-@retry(RequestException, tries=3, delay=2, backoff=2)
-def download_csv(url, output_folder):
-    # Extract filename from URL
-    filename = url.split('/')[-1]
-    # Construct output file path
-    output_path = os.path.join(output_folder, filename)
 
-    try:
-        # Download CSV file
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(url, stream=True, headers=headers)
-        response.raise_for_status()  # Raise error for bad response status
+# Base URL where PARQUET files are located
+base_url = 'https://d37ci6vzurychx.cloudfront.net/trip-data/'
 
-        # Save CSV file
-        with open(output_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+# Directory to save downloaded files
+save_dir = 'converted_csv/'  # Change this to your desired directory path
 
-        print(f"Downloaded {filename}")
+# Function to download file with retry mechanism
+@retry(wait_fixed=2000, stop_max_attempt_number=3)
+def download_file(url, save_path):
+    response = requests.get(url)
+    response.raise_for_status()
+    with open(save_path, 'wb') as f:
+        f.write(response.content)
 
-    except RequestException as e:
-        print(f"Error downloading {url}: {e}")
-        raise  # Re-raise the exception for retry decorator
-    except Exception as e:
-        print(f"Unexpected error processing {url}: {e}")
+# Ensure save directory exists
+os.makedirs(save_dir, exist_ok=True)
 
-# Base URL for CSV files
-base_url = "https://d37ci6vzurychx.cloudfront.net/trip-data/"
+# Function to download PARQUET files for a given month
+def download_parquet_files(year, month):
+    # List of types of data to download
+    datasets = ['yellow_tripdata', 'green_tripdata', 'fhv_tripdata']
 
-# Year and months for 2019
-months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12']
+    for dataset in datasets:
+        filename = f'{dataset}_{year}-{month:02d}.parquet'
+        file_url = os.path.join(base_url, filename)
+        save_path = os.path.join(save_dir, filename)
 
-# Output folder for CSV files
-output_folder = 'yellow_tripdata_2019'
+        try:
+            print(f"Downloading {filename}...")
+            download_file(file_url, save_path)
+            print(f"Downloaded {filename} to {save_path}")
+        except Exception as e:
+            print(f"Error downloading {filename}: {e}")
 
-# Ensure output folder exists
-os.makedirs(output_folder, exist_ok=True)
-
-# Iterate through each month in 2019
-for month in months:
-    csv_url = f"{base_url}yellow_tripdata_2019-{month}.csv"
-
-    try:
-        download_csv(csv_url, output_folder)
-    except RequestException as e:
-        print(f"Error downloading {csv_url}: {e}")
-    except Exception as e:
-        print(f"Unexpected error processing {csv_url}: {e}")
+# Iterate over months in year 2019 (assuming January to December)
+for month in range(1, 13):
+    download_parquet_files(2019, month)
